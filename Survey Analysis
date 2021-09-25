@@ -1,1 +1,190 @@
-CONTEXT: 
+CONTEXT: Import survey short answer question results, identify the most concerned from customer on vaccines. Texts are in several languages.
+# The dataset contains several other features, which could help on detect the original languages and classify the customers into several groups to form better results.
+# Sentiment analysis
+
+# Packages import
+import pandas as pd
+import numpy as np
+import matplotlib.pyplot as plt
+import seaborn as sns
+import re
+from string import punctuation
+%matplotlib inline
+sns.set()
+
+# Expanding contractions
+# Contractions are words or combinations of words that are shortened by dropping letters and replacing them by an apostrophe.
+#!pip install contractions==0.0.18
+import contractions
+
+# unicode characters
+import unicodedata
+
+#detect language
+#!pip install langdetect
+from langdetect import detect
+from langdetect import DetectorFactory
+DetectorFactory.seed = 0
+
+#remove stop words
+#!pip install nltk
+import nltk
+nltk.download('punkt')
+nltk.download('stopwords')
+from nltk.corpus import stopwords
+stopwords_en = stopwords.words("english")
+stop_words_en = set(stopwords_en)
+stop_words_en.update(["other_stop_words_specific"])
+from  nltk.stem import SnowballStemmer
+stemmer_en = SnowballStemmer('english')
+
+#Sentiment Analysis
+#!pip install textblob
+from textblob import TextBlob
+
+#translate 
+#!pip install googletrans==4.0.0rc1
+import googletrans
+from googletrans import Translator
+
+
+english_df = language_df[language_df['Demographics_Language']=='English']
+english_ms = english_df.Message
+
+# unicode characters to English alphabet
+transed_englist=[]
+for i in english_message:
+    l=unicodedata.normalize('NFKD',i).encode('ascii','ignore')
+    # transfer byte to string and lower cases
+    l=l.lower().decode('utf-8')
+    # expanding contractions
+    el=contractions.fix(l)
+    transed_englist.append(el)
+
+#clean the message with trim, delete extra space and special expressions
+transed_englist=[re.sub(r'[0-9]|[^\w\s]|\r|\n','',i) for i in transed_englist]  #replace number and punctuation to ""
+clean_englist= map(lambda x: re.sub(' +',' ',x).strip(), transed_englist) #trim and replace multi space
+clean_englist=[x for x in clean_englist if x[0:4] != 'http' and x.find('auto') == -1 and x.find('driving') ==-1 and x.find('respond') ==-1 ]
+# delete the record auto reply and driving reply
+clean_englist=[x for x in clean_englist if str(x) != 'nan' and len(x)>4]  #clean the nan and the length of string smaller than 4
+
+# detect language with translator application
+language=[]
+for i in clean_englist:
+    lang=detect(i)
+    language.append(lang)
+
+languageS = pd.Series(language)
+languageS=pd.DataFrame(languageS.value_counts()).reset_index()
+languageS.columns =['Language', 'Count']
+
+# Remove english stop words and stem
+def preprocess(text_list, stem=False):
+    tokens = []
+    for token in text_list.split(' '):
+        if token not in stop_words_en:
+            if stem:
+                tokens.append(stemmer_en.stem(token))
+            else:
+                tokens.append(token)
+    return " ".join(tokens)
+    
+comments_list_en=english_df.apply(lambda x: preprocess(x)).tolist()
+en_list=map(lambda x: re.sub(' +',' ',x).strip(), comments_list_en)
+en_list=[x for x in en_list if str(x) != 'nan' and len(x)>4]   #delete the record whose length less than 4
+
+
+** Visualizing the most frequently used words in a word cloud **
+#!pip install wordcloud
+from PIL import Image
+from wordcloud import WordCloud, STOPWORDS, ImageColorGenerator
+
+text_en = " ".join(word for word in en_list)
+print ("There are {} words in the combination of all English responses.".format(len(text_en)))
+
+stopwords = set(STOPWORDS)
+stopwords.update(["johnson johnson " ....])
+
+wordcloud = WordCloud(width = 800, height = 800,background_color ='white', min_font_size = 10,stopwords=stopwords).generate(text_en)
+plt.figure(figsize = (12,12), facecolor = None) 
+plt.imshow(wordcloud, interpolation='bilinear')
+plt.axis("off")
+plt.show()
+
+
+** Finding the most frequently used words from among all the comments **
+from nltk.tokenize import word_tokenize
+
+tokens = pd.Series(en_list).apply(word_tokenize)
+all_tokens = []
+for i in range(len(en_list)):
+    all_tokens = all_tokens + tokens[i]
+    
+from nltk.probability import FreqDist
+fdist = FreqDist(all_tokens)
+
+stop_words_en.update(["johnson johnson ".....])
+clean_tokens=[x for x in all_tokens if x.lower() not in stop_words_en]
+clean_tokens_string = ''
+for value in clean_tokens:
+    clean_tokens_string = clean_tokens_string + value + ' '
+    
+wordcloud = WordCloud(width = 800, height = 800,background_color ='white', min_font_size = 10).generate(clean_tokens_string) 
+
+# plot the WordCloud image                        
+plt.figure(figsize = (12, 12), facecolor = None) 
+plt.imshow(wordcloud) 
+plt.axis("off") 
+plt.tight_layout(pad = 0) 
+plt.show()
+
+
+** Top 5 words that appear most often **
+clean_fdist = FreqDist(clean_tokens)
+counts = pd.Series(clean_fdist)
+counts = counts[:5]
+counts.sort_values(ascending=False, inplace=True)
+
+#Generates bar graph
+ax = counts.sort_values(ascending=True).plot(kind='barh', figsize=(10, 10), fontsize=12)
+
+#X axis text and display style of categories
+ax.set_xlabel("Frequency", fontsize=12)
+
+#Y axis text
+ax.set_ylabel("Word", fontsize=12)
+
+#Title
+ax.set_title("Top 5 words with frequency in vaccine survey", fontsize=20)
+
+#Annotations
+for i in ax.patches:
+    # get_width pulls left or right; get_y pushes up or down
+    ax.text(i.get_width()+.1, i.get_y()+.31, str(round((i.get_width()), 2)), fontsize=10, color='dimgrey')
+
+** Estimating the sentiment in the responses **
+def generate_polarity(comment):
+    '''Extract polarity score (-1 to +1) for each response'''
+    return TextBlob(comment).sentiment[0]
+
+polarity = english_df.apply(generate_polarity)
+
+#plot distribution of sentiment scores
+num_bins = 30
+plt.figure(figsize=(10,6))
+n, bins, patches = plt.hist(polarity, num_bins, facecolor='green', alpha=0.6)
+plt.xlabel('Polarity')
+plt.ylabel('Count')
+plt.title('Histogram of polarity / sentiment score')
+
+polarity_df_en = pd.DataFrame()
+polarity_df_en['Words']=english_df
+polarity_df_en['Polarity']=polarity
+
+# Top 10 comments with a positive sentiment
+positive_sentiment = polarity_df_en.nlargest(10, 'Polarity')
+positive_sentiment.style.set_properties(subset=['Words'], **{'width': '300px'})
+plt.show()
+# Top 10 comments with a negative sentiment
+negative_sentiment = polarity_df_en.nsmallest(10, 'Polarity')
+negative_sentiment.style.set_properties(subset=['Words'], **{'width': '300px'})
